@@ -266,12 +266,12 @@ export default function App() {
 
           <label className="text-sm text-slate-300 block mb-2">Nome</label>
 
-          <div className="flex gap-3">
+          <div className="flex flex-col sm:flex-row gap-3">
             <input
               value={playerName}
               onChange={(e) => setPlayerName(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') addPlayer(); }}
-              className="flex-1 bg-slate-900/70 border border-slate-700 rounded-2xl px-4 py-3 outline-none focus:border-cyan-400 transition"
+              className="flex-1 min-w-0 bg-slate-900/70 border border-slate-700 rounded-2xl px-4 py-3 outline-none focus:border-cyan-400 transition"
               placeholder="Seu nome"
               autoFocus
             />
@@ -279,7 +279,7 @@ export default function App() {
             <button
               type="button"
               onClick={addPlayer}
-              className="bg-cyan-400 hover:bg-cyan-300 text-slate-900 font-bold px-5 rounded-2xl transition"
+              className="w-full sm:w-auto flex-shrink-0 bg-cyan-400 hover:bg-cyan-300 text-slate-900 font-bold px-5 rounded-2xl transition cursor-pointer"
             >
               Entrar
             </button>
