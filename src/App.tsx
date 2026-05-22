@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Users,
   Eye,
@@ -6,9 +6,13 @@ import {
   RotateCcw,
   CoffeeIcon,
   CheckCircle2,
+  LogIn,
+  LogOut,
 } from "lucide-react";
 
 const cards = ['0', '1/2', '1', '2', '3', '5', '8', '13', '21', '34', '55', '89', '?', '☕'];
+
+const SESSION_STORAGE_KEY = 'planning-poker-session';
 
 type Player = {
   id: number;
@@ -16,56 +20,133 @@ type Player = {
   vote: string | null;
 };
 
+type SessionState = {
+  activeUser: string | null;
+  votes: Record<string, string | null>;
+};
+
+const loadSessionState = (): SessionState => {
+  if (typeof window === 'undefined') {
+    return {
+      activeUser: null,
+      votes: {},
+    };
+  }
+
+  const storedState = sessionStorage.getItem(SESSION_STORAGE_KEY);
+
+  if (!storedState) {
+    return {
+      activeUser: null,
+      votes: {},
+    };
+  }
+
+  try {
+    const parsedState = JSON.parse(storedState) as Partial<SessionState>;
+
+    return {
+      activeUser:
+        typeof parsedState.activeUser === 'string'
+          ? parsedState.activeUser
+          : null,
+      votes: parsedState.votes ?? {},
+    };
+  } catch {
+    return {
+      activeUser: null,
+      votes: {},
+    };
+  }
+};
+
+const Footer = () => (
+  <footer className="mt-8 text-center text-sm text-slate-400">
+    desenvolvido por{' '}
+    <a
+      href="https://green-webx.vercel.app/"
+      target="_blank"
+      rel="noreferrer"
+      className="font-semibold text-cyan-300 transition hover:text-cyan-200 hover:underline"
+    >
+      GreenWebX
+    </a>
+  </footer>
+);
+
 export default function App() {
   const [sessionName, setSessionName] = useState('Sprint Planning');
-  const [playerName, setPlayerName] = useState('');
-  const [selectedCard, setSelectedCard] = useState<string | null>(null);
+  const [loginName, setLoginName] = useState('');
+  const [sessionState, setSessionState] = useState<SessionState>(loadSessionState);
   const [revealed, setRevealed] = useState(false);
 
-  const [players, setPlayers] = useState<Player[]>([
-    { id: 1, name: 'Lucas', vote: '5' },
-  ]);
+  useEffect(() => {
+    sessionStorage.setItem(
+      SESSION_STORAGE_KEY,
+      JSON.stringify(sessionState)
+    );
+  }, [sessionState]);
 
-  const addPlayer = () => {
-    if (!playerName.trim()) return;
+  const players = useMemo<Player[]>(
+    () =>
+      Object.entries(sessionState.votes).map(([name, vote], index) => ({
+        id: index + 1,
+        name,
+        vote,
+      })),
+    [sessionState.votes]
+  );
 
-    const newPlayer: Player = {
-      id: Date.now(),
-      name: playerName,
-      vote: null,
-    };
-
-    setPlayers((prev) => [...prev, newPlayer]);
-    setPlayerName('');
-  };
+  const currentUser = sessionState.activeUser;
+  const currentVote = currentUser ? sessionState.votes[currentUser] ?? null : null;
 
   const vote = (card: string) => {
-    setSelectedCard(card);
+    if (!currentUser) return;
 
-    setPlayers((prev) =>
-      prev.map((player, index) => {
-        if (index === 0) {
-          return {
-            ...player,
-            vote: card,
-          };
-        }
-
-        return player;
-      })
-    );
+    setSessionState((prev) => ({
+      ...prev,
+      votes: {
+        ...prev.votes,
+        [prev.activeUser as string]: card,
+      },
+    }));
   };
 
   const resetVoting = () => {
     setRevealed(false);
-    setSelectedCard(null);
 
-    setPlayers((prev) =>
-      prev.map((player) => ({
-        ...player,
-        vote: null,
-      }))
-    );
+    setSessionState((prev) => ({
+      ...prev,
+      votes: Object.fromEntries(
+        Object.entries(prev.votes).map(([name]) => [name, null])
+      ),
+    }));
+  };
+
+  const login = () => {
+    const trimmedName = loginName.trim();
+
+    if (!trimmedName) return;
+
+    setSessionState((prev) => ({
+      activeUser: trimmedName,
+      votes: {
+        ...prev.votes,
+        [trimmedName]: prev.votes[trimmedName] ?? null,
+      },
+    }));
+
+    setLoginName('');
+    setRevealed(false);
+  };
+
+  const logout = () => {
+    setSessionState((prev) => ({
+      ...prev,
+      activeUser: null,
+    }));
+
+    setRevealed(false);
   };
 
   const average = useMemo(() => {
@@ -81,6 +162,64 @@ export default function App() {
   }, [players]);
 
   const votesCompleted = players.filter((player) => player.vote).length;
+
+  if (!currentUser) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 text-white px-6 py-10 flex items-center justify-center">
+        <div className="w-full max-w-md bg-white/10 backdrop-blur border border-white/10 rounded-[32px] p-8 shadow-2xl">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-12 h-12 rounded-2xl bg-cyan-400/15 border border-cyan-400/30 flex items-center justify-center text-cyan-300">
+              <LogIn className="w-6 h-6" />
+            </div>
+
+            <div>
+              <p className="text-cyan-400 uppercase tracking-[0.3em] text-xs font-bold">
+                Planning Poker
+              </p>
+              <h1 className="text-3xl font-black mt-1">Entrar na sessão</h1>
+            </div>
+          </div>
+
+          <p className="text-slate-300 mb-6 leading-relaxed">
+            Digite apenas seu usuário para acessar a votação. A sessão fica
+            salva no navegador enquanto esta aba estiver aberta.
+          </p>
+
+          <label className="text-sm text-slate-300 block mb-2">Usuário</label>
+
+          <div className="flex gap-3">
+            <input
+              value={loginName}
+              onChange={(e) => setLoginName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  login();
+                }
+              }}
+              className="flex-1 bg-slate-900/70 border border-slate-700 rounded-2xl px-4 py-3 outline-none focus:border-cyan-400 transition"
+              placeholder="Seu nome"
+              autoFocus
+            />
+
+            <button
+              onClick={login}
+              className="bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-bold px-5 rounded-2xl transition flex items-center gap-2"
+            >
+              <LogIn className="w-5 h-5" />
+              Entrar
+            </button>
+          </div>
+
+          <div className="mt-6 rounded-2xl border border-slate-700 bg-slate-900/50 p-4">
+            <p className="text-slate-400 text-sm">Sessão atual</p>
+            <h2 className="text-xl font-bold mt-1">{sessionName}</h2>
+          </div>
+
+          <Footer />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 text-white px-6 py-10">
@@ -117,19 +256,18 @@ export default function App() {
                 <h2 className="text-2xl font-bold">Participantes</h2>
               </div>
 
-              <div className="flex gap-3 mb-5">
-                <input
-                  value={playerName}
-                  onChange={(e) => setPlayerName(e.target.value)}
-                  placeholder="Adicionar participante"
-                  className="flex-1 bg-slate-900/70 border border-slate-700 rounded-2xl px-4 py-3 outline-none focus:border-cyan-400 transition"
-                />
+              <div className="mb-5 flex items-center justify-between gap-3 rounded-2xl border border-slate-700 bg-slate-900/50 px-4 py-3">
+                <div>
+                  <p className="text-slate-400 text-sm">Usuário logado</p>
+                  <p className="font-semibold">{currentUser}</p>
+                </div>
 
                 <button
-                  onClick={addPlayer}
-                  className="bg-cyan-400 hover:bg-cyan-300 text-slate-900 font-bold px-5 rounded-2xl transition"
+                  onClick={logout}
+                  className="flex items-center gap-2 rounded-2xl border border-slate-700 bg-slate-900/70 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-cyan-400 hover:text-white"
                 >
-                  Adicionar
+                  <LogOut className="w-4 h-4" />
+                  Sair
                 </button>
               </div>
 
@@ -236,7 +374,7 @@ export default function App() {
 
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-5">
                 {cards.map((card) => {
-                  const isSelected = selectedCard === card;
+                  const isSelected = currentVote === card;
                   const isCoffee = card === '☕';
 
                   return (
@@ -294,6 +432,8 @@ export default function App() {
             </div>
           </div>
         </div>
+
+        <Footer />
       </div>
     </div>
   );
