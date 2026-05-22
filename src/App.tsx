@@ -6,6 +6,7 @@ import {
   RotateCcw,
   Coffee,
   CheckCircle2,
+  Trash2,
 } from 'lucide-react';
 
 const cards = ['0', '1/2', '1', '2', '3', '5', '8', '13', '21', '34', '55', '89', '?', '☕'];
@@ -40,6 +41,18 @@ export default function App() {
     setPlayerName('');
   };
 
+  const removePlayer = (playerId: number) => {
+    setPlayers((prev) => {
+      const nextPlayers = prev.filter((player) => player.id !== playerId);
+
+      if (activePlayerId === playerId) {
+        setActivePlayerId(nextPlayers[0]?.id ?? 0);
+      }
+
+      return nextPlayers;
+    });
+  };
+
   const vote = (card: string) => {
     const targetPlayerId =
       players.find((player) => player.id === activePlayerId)?.id ?? players[0]?.id;
@@ -49,7 +62,7 @@ export default function App() {
     setSelectedCard(card);
 
     setPlayers((prev) =>
-      prev.map((player, index) => {
+      prev.map((player) => {
         if (player.id === targetPlayerId) {
           return {
             ...player,
@@ -141,24 +154,42 @@ export default function App() {
 
               <div className="space-y-3">
                 {players.map((player) => (
-                  <button
+                  <div
                     key={player.id}
-                    onClick={() => setActivePlayerId(player.id)}
                     className={
-                      `w-full bg-slate-900/60 border rounded-2xl px-4 py-4 flex items-center justify-between transition text-left ` +
+                      `w-full bg-slate-900/60 border rounded-2xl px-4 py-4 flex items-center justify-between gap-4 transition text-left ` +
                       (activePlayerId === player.id
                         ? 'border-cyan-400 ring-1 ring-cyan-400/40'
                         : 'border-slate-700 hover:border-slate-500')
                     }
                   >
-                    <div>
-                      <p className="font-semibold">{player.name}</p>
-                      <p className="text-sm text-slate-400">
-                        {activePlayerId === player.id ? 'Selecionado para votar' : player.vote ? 'Votou' : 'Aguardando voto'}
-                      </p>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setActivePlayerId(player.id)}
+                      className="flex-1 text-left"
+                    >
+                      <div>
+                        <p className="font-semibold">{player.name}</p>
+                        <p className="text-sm text-slate-400">
+                          {activePlayerId === player.id
+                            ? 'Selecionado para votar'
+                            : player.vote
+                              ? 'Votou'
+                              : 'Aguardando voto'}
+                        </p>
+                      </div>
+                    </button>
 
-                    <div>
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => removePlayer(player.id)}
+                        className="inline-flex items-center justify-center rounded-xl border border-slate-700 bg-slate-900/80 p-2 text-slate-300 transition hover:border-red-400 hover:text-red-300"
+                        aria-label={`Remover participante ${player.name}`}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+
                       {revealed ? (
                         <div className="w-12 h-16 rounded-xl bg-cyan-400 text-slate-950 flex items-center justify-center font-black text-xl shadow-lg">
                           {player.vote || '-'}
@@ -173,7 +204,7 @@ export default function App() {
                         </div>
                       )}
                     </div>
-                  </button>
+                  </div>
                 ))}
               </div>
             </div>
