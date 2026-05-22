@@ -36,11 +36,14 @@ type Player = {
 };
 
 const SESSION_ID = "bdda3994-cb47-4014-b64c-4736446b8cae";
+const LOCAL_PLAYER_KEY = 'planning-poker-player-id';
 
 export default function App() {
   const [sessionName, setSessionName] = useState("Sprint Planning");
 
   const [playerName, setPlayerName] = useState("");
+
+  const [localPlayerId, setLocalPlayerId] = useState<string | null>(null);
 
   const [selectedCard, setSelectedCard] = useState<string | null>(null);
 
@@ -80,6 +83,11 @@ export default function App() {
   };
 
   useEffect(() => {
+    const storedLocal = sessionStorage.getItem(LOCAL_PLAYER_KEY);
+    if (storedLocal) {
+      setLocalPlayerId(storedLocal);
+      setActivePlayerId(storedLocal);
+    }
     loadSession();
     loadPlayers();
 
@@ -143,11 +151,21 @@ export default function App() {
   const addPlayer = async () => {
     if (!playerName.trim()) return;
 
-    await supabase.from("players").insert({
-      name: playerName,
-      vote: null,
-      session_id: SESSION_ID,
-    });
+    const { data } = await supabase
+      .from("players")
+      .insert({
+        name: playerName,
+        vote: null,
+        session_id: SESSION_ID,
+      })
+      .select()
+      .single();
+
+    if (data && data.id) {
+      sessionStorage.setItem(LOCAL_PLAYER_KEY, data.id);
+      setLocalPlayerId(data.id);
+      setActivePlayerId(data.id);
+    }
 
     await loadPlayers();
 
@@ -229,6 +247,48 @@ export default function App() {
 
   const votesCompleted = players.filter((player) => player.vote).length;
 
+  if (!localPlayerId) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 text-white px-6 py-10 flex items-center justify-center">
+        <div className="w-full max-w-md bg-white/10 backdrop-blur border border-white/10 rounded-[32px] p-8 shadow-2xl">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-12 h-12 rounded-2xl bg-cyan-400/15 border border-cyan-400/30 flex items-center justify-center text-cyan-300">
+              <Users className="w-6 h-6" />
+            </div>
+
+            <div>
+              <p className="text-cyan-400 uppercase tracking-[0.3em] text-xs font-bold">Sessão</p>
+              <h1 className="text-2xl font-black mt-1">{sessionName}</h1>
+            </div>
+          </div>
+
+          <p className="text-slate-300 mb-6">Digite seu nome para entrar na sessão. Ao entrar você será adicionado automaticamente à lista de participantes.</p>
+
+          <label className="text-sm text-slate-300 block mb-2">Nome</label>
+
+          <div className="flex gap-3">
+            <input
+              value={playerName}
+              onChange={(e) => setPlayerName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') addPlayer(); }}
+              className="flex-1 bg-slate-900/70 border border-slate-700 rounded-2xl px-4 py-3 outline-none focus:border-cyan-400 transition"
+              placeholder="Seu nome"
+              autoFocus
+            />
+
+            <button
+              type="button"
+              onClick={addPlayer}
+              className="bg-cyan-400 hover:bg-cyan-300 text-slate-900 font-bold px-5 rounded-2xl transition"
+            >
+              Entrar
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 text-white px-6 py-10">
       <div className="max-w-7xl mx-auto">
@@ -263,8 +323,7 @@ export default function App() {
               className="w-full bg-slate-900/70 border border-slate-700 rounded-2xl px-4 py-3 outline-none focus:border-cyan-400 transition"
             />
           </div>
-        
-      </div>
+        </div>
 
         <div className="grid grid-cols-1 xl:grid-cols-[380px_1fr] gap-8">
           <div className="space-y-6">
@@ -391,7 +450,7 @@ export default function App() {
                 <div className="bg-slate-900/60 border border-slate-700 rounded-2xl p-4">
                   <p className="text-slate-400 text-sm">Média</p>
 
-                  <h3 className="text-3xl font-black mt-2">{average || "-"}</h3>
+                  <h3 className="text-3xl font-black mt-2">{revealed ? (average ?? "-") : "-"}</h3>
                 </div>
               </div>
             </div>
@@ -460,7 +519,17 @@ export default function App() {
           </div>
         </div>
       </div>
-      
+      <footer className="mt-8 text-center text-sm text-slate-400">
+        desenvolvido por{" "}
+        <a
+          href="https://green-webx.vercel.app/"
+          target="_blank"
+          rel="noreferrer"
+          className="font-semibold text-cyan-300 transition hover:text-cyan-200 hover:underline"
+        >
+          GreenWebX
+        </a>
+      </footer>
     </div>
   );
 }
