@@ -76,8 +76,17 @@ export default function App() {
     if (data) {
       setPlayers(data);
 
-      if (data.length && !activePlayerId) {
-        setActivePlayerId(data[0].id);
+      if (data.length) {
+        const storedLocal = sessionStorage.getItem(LOCAL_PLAYER_KEY);
+
+        // prefer the locally stored player if they exist in the list,
+        // otherwise keep current active if still present, or fallback to first
+        const preferred =
+          (storedLocal && data.find((p: any) => p.id === storedLocal)?.id) ||
+          (data.find((p: any) => p.id === activePlayerId)?.id) ||
+          data[0].id;
+
+        setActivePlayerId(preferred);
       }
     }
   };
@@ -110,8 +119,15 @@ export default function App() {
           if (data) {
             setPlayers(data);
 
-            if (data.length && !activePlayerId) {
-              setActivePlayerId(data[0].id);
+            if (data.length) {
+              const storedLocal = sessionStorage.getItem(LOCAL_PLAYER_KEY);
+
+              const preferred =
+                (storedLocal && data.find((p: any) => p.id === storedLocal)?.id) ||
+                (data.find((p: any) => p.id === activePlayerId)?.id) ||
+                data[0].id;
+
+              setActivePlayerId(preferred);
             }
           }
         },
