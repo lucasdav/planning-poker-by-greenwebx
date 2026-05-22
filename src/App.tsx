@@ -275,17 +275,18 @@ export default function App() {
                 <h2 className="text-2xl font-bold">Participantes</h2>
               </div>
 
-              <div className="flex gap-3 mb-5">
+              <div className="flex flex-col sm:flex-row gap-3 mb-5">
                 <input
                   value={playerName}
                   onChange={(e) => setPlayerName(e.target.value)}
                   placeholder="Adicionar participante"
-                  className="flex-1 bg-slate-900/70 border border-slate-700 rounded-2xl px-4 py-3 outline-none focus:border-cyan-400 transition"
+                  className="flex-1 min-w-0 bg-slate-900/70 border border-slate-700 rounded-2xl px-4 py-3 outline-none focus:border-cyan-400 transition"
                 />
 
                 <button
+                  type="button"
                   onClick={addPlayer}
-                  className="bg-cyan-400 hover:bg-cyan-300 text-slate-900 font-bold px-5 rounded-2xl transition"
+                  className="w-full sm:w-auto flex-shrink-0 bg-cyan-400 hover:bg-cyan-300 text-slate-900 font-bold px-5 rounded-2xl transition cursor-pointer"
                 >
                   Adicionar
                 </button>
@@ -459,17 +460,7 @@ export default function App() {
           </div>
         </div>
       </div>
-      <footer className="mt-8 text-center text-sm text-slate-400">
-          desenvolvido por{' '}
-          <a
-            href="https://green-webx.vercel.app/"
-            target="_blank"
-            rel="noreferrer"
-            className="font-semibold text-cyan-300 transition hover:text-cyan-200 hover:underline"
-          >
-            GreenWebX
-          </a>
-        </footer>
+      
     </div>
   );
 }
