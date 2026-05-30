@@ -7,6 +7,7 @@ import {
   Coffee,
   CheckCircle2,
   Trash2,
+  LogOut,
 } from "lucide-react";
 
 import { supabase } from "./lib/supabase";
@@ -35,11 +36,26 @@ type Player = {
   session_id: string;
 };
 
-const SESSION_ID = "bdda3994-cb47-4014-b64c-4736446b8cae";
-const LOCAL_PLAYER_KEY = 'planning-poker-player-id';
+type SessionRecord = {
+  id: string;
+  name: string;
+  revealed: boolean;
+};
+
+const DEFAULT_SESSION_NAME = "Sprint Planning";
+const LOCAL_PLAYER_KEY = "planning-poker-player-id";
+const LOCAL_SESSION_KEY = "planning-poker-session-id";
+
+const getPlayerStorageKey = (sessionId: string) => `${LOCAL_PLAYER_KEY}:${sessionId}`;
 
 export default function App() {
-  const [sessionName, setSessionName] = useState("Sprint Planning");
+  const [availableSessions, setAvailableSessions] = useState<SessionRecord[]>([]);
+
+  const [currentSessionId, setCurrentSessionId] = useState<string>("");
+
+  const [newSessionName, setNewSessionName] = useState("");
+
+  const [sessionName, setSessionName] = useState(DEFAULT_SESSION_NAME);
 
   const [playerName, setPlayerName] = useState("");
 
@@ -53,11 +69,41 @@ export default function App() {
 
   const [players, setPlayers] = useState<Player[]>([]);
 
-  const loadSession = async () => {
+  const loadSessions = async () => {
     const { data } = await supabase
       .from("sessions")
       .select("*")
-      .eq("id", SESSION_ID)
+      .order("created_at", { ascending: false });
+
+    const sessions = (data ?? []) as SessionRecord[];
+
+    setAvailableSessions(sessions);
+
+    if (!sessions.length) {
+      setCurrentSessionId("");
+      return;
+    }
+
+    setCurrentSessionId((current) => {
+      if (current && sessions.some((session) => session.id === current)) {
+        return current;
+      }
+
+      const storedSession = sessionStorage.getItem(LOCAL_SESSION_KEY);
+
+      if (storedSession && sessions.some((session) => session.id === storedSession)) {
+        return storedSession;
+      }
+
+      return sessions[0].id;
+    });
+  };
+
+  const loadSession = async (sessionId: string) => {
+    const { data } = await supabase
+      .from("sessions")
+      .select("*")
+      .eq("id", sessionId)
       .maybeSingle();
 
     if (data) {
@@ -66,94 +112,158 @@ export default function App() {
     }
   };
 
-  const loadPlayers = async () => {
+  const loadPlayers = async (sessionId: string) => {
     const { data } = await supabase
       .from("players")
       .select("*")
-      .eq("session_id", SESSION_ID)
+      .eq("session_id", sessionId)
       .order("id");
 
-    if (data) {
-      setPlayers(data);
+    const sessionPlayers = (data ?? []) as Player[];
 
-      if (data.length) {
-        const storedLocal = sessionStorage.getItem(LOCAL_PLAYER_KEY);
+    setPlayers(sessionPlayers);
 
-        // prefer the locally stored player if they exist in the list,
-        // otherwise keep current active if still present, or fallback to first
-        const preferred =
-          (storedLocal && data.find((p: any) => p.id === storedLocal)?.id) ||
-          (data.find((p: any) => p.id === activePlayerId)?.id) ||
-          data[0].id;
+    if (!sessionPlayers.length) {
+      setLocalPlayerId(null);
+      setActivePlayerId("");
+      return;
+    }
 
-        setActivePlayerId(preferred);
-      }
+    const storedLocal = sessionStorage.getItem(getPlayerStorageKey(sessionId));
+    const storedPlayerExists = storedLocal
+      ? sessionPlayers.some((player) => player.id === storedLocal)
+      : false;
+
+    if (storedPlayerExists && storedLocal) {
+      setLocalPlayerId(storedLocal);
+      setActivePlayerId(storedLocal);
+      return;
+    }
+
+    setLocalPlayerId(null);
+
+    const preferred =
+      sessionPlayers.find((player) => player.id === activePlayerId)?.id ||
+      sessionPlayers[0].id;
+
+    setActivePlayerId(preferred);
+  };
+
+  const startSession = async (sessionId: string) => {
+    if (!sessionId) return;
+
+    sessionStorage.setItem(LOCAL_SESSION_KEY, sessionId);
+    setCurrentSessionId(sessionId);
+
+    await loadSession(sessionId);
+    await loadPlayers(sessionId);
+  };
+
+  const joinSession = async (sessionId: string, name: string) => {
+    if (!name.trim()) return;
+
+    const { data } = await supabase
+      .from("players")
+      .insert({
+        name: name.trim(),
+        vote: null,
+        session_id: sessionId,
+      })
+      .select()
+      .single();
+
+    if (data && data.id) {
+      sessionStorage.setItem(getPlayerStorageKey(sessionId), data.id);
+      setLocalPlayerId(data.id);
+      setActivePlayerId(data.id);
+    }
+
+    await loadPlayers(sessionId);
+
+    setPlayerName("");
+  };
+
+  const createSession = async () => {
+    if (!newSessionName.trim()) return;
+
+    const { data } = await supabase
+      .from("sessions")
+      .insert({
+        name: newSessionName.trim(),
+        revealed: false,
+      })
+      .select()
+      .single();
+
+    if (!data?.id) return;
+
+    setNewSessionName("");
+
+    await loadSessions();
+
+    sessionStorage.setItem(LOCAL_SESSION_KEY, data.id);
+    await startSession(data.id);
+
+    if (playerName.trim()) {
+      await joinSession(data.id, playerName);
     }
   };
 
   useEffect(() => {
-    const storedLocal = sessionStorage.getItem(LOCAL_PLAYER_KEY);
+    loadSessions();
+  }, []);
+
+  useEffect(() => {
+    if (!currentSessionId) {
+      setLocalPlayerId(null);
+      setPlayers([]);
+      setSessionName(DEFAULT_SESSION_NAME);
+      setRevealed(false);
+      setSelectedCard(null);
+      setActivePlayerId("");
+      return;
+    }
+
+    const storedLocal = sessionStorage.getItem(getPlayerStorageKey(currentSessionId));
+
     if (storedLocal) {
       setLocalPlayerId(storedLocal);
       setActivePlayerId(storedLocal);
+    } else {
+      setLocalPlayerId(null);
     }
-    loadSession();
-    loadPlayers();
+
+    loadSession(currentSessionId);
+    loadPlayers(currentSessionId);
 
     const playersChannel = supabase
-      .channel("players-realtime")
+      .channel(`players-realtime-${currentSessionId}`)
       .on(
         "postgres_changes",
         {
           event: "*",
           schema: "public",
           table: "players",
+          filter: `session_id=eq.${currentSessionId}`,
         },
         async () => {
-          const { data } = await supabase
-            .from("players")
-            .select("*")
-            .eq("session_id", SESSION_ID)
-            .order("created_at");
-
-          if (data) {
-            setPlayers(data);
-
-            if (data.length) {
-              const storedLocal = sessionStorage.getItem(LOCAL_PLAYER_KEY);
-
-              const preferred =
-                (storedLocal && data.find((p: any) => p.id === storedLocal)?.id) ||
-                (data.find((p: any) => p.id === activePlayerId)?.id) ||
-                data[0].id;
-
-              setActivePlayerId(preferred);
-            }
-          }
+          await loadPlayers(currentSessionId);
         },
       )
       .subscribe();
 
     const sessionsChannel = supabase
-      .channel("sessions-realtime")
+      .channel(`sessions-realtime-${currentSessionId}`)
       .on(
         "postgres_changes",
         {
           event: "*",
           schema: "public",
           table: "sessions",
+          filter: `id=eq.${currentSessionId}`,
         },
         async () => {
-          const { data } = await supabase
-            .from("sessions")
-            .select("*")
-            .eq("id", SESSION_ID)
-            .maybeSingle();
-
-          if (data) {
-            setSessionName(data.name);
-            setRevealed(data.revealed);
-          }
+          await loadSession(currentSessionId);
         },
       )
       .subscribe();
@@ -162,39 +272,19 @@ export default function App() {
       supabase.removeChannel(playersChannel);
       supabase.removeChannel(sessionsChannel);
     };
-  }, []);
+  }, [currentSessionId]);
 
   const addPlayer = async () => {
-    if (!playerName.trim()) return;
+    if (!currentSessionId) return;
 
-    const { data } = await supabase
-      .from("players")
-      .insert({
-        name: playerName,
-        vote: null,
-        session_id: SESSION_ID,
-      })
-      .select()
-      .single();
-
-    if (data && data.id) {
-      sessionStorage.setItem(LOCAL_PLAYER_KEY, data.id);
-      setLocalPlayerId(data.id);
-      setActivePlayerId(data.id);
-    }
-
-    await loadPlayers();
-
-    setPlayerName("");
+    await joinSession(currentSessionId, playerName);
   };
 
   const removePlayer = async (playerId: string) => {
     await supabase.from("players").delete().eq("id", playerId);
 
-    await loadPlayers();
-
-    if (activePlayerId === playerId) {
-      setActivePlayerId("");
+    if (currentSessionId) {
+      await loadPlayers(currentSessionId);
     }
   };
 
@@ -214,21 +304,27 @@ export default function App() {
       })
       .eq("id", targetPlayerId);
 
-    await loadPlayers();
+    if (currentSessionId) {
+      await loadPlayers(currentSessionId);
+    }
   };
 
   const toggleReveal = async () => {
+    if (!currentSessionId) return;
+
     await supabase
       .from("sessions")
       .update({
         revealed: !revealed,
       })
-      .eq("id", SESSION_ID);
+      .eq("id", currentSessionId);
 
-    await loadSession();
+    await loadSession(currentSessionId);
   };
 
   const resetVoting = async () => {
+    if (!currentSessionId) return;
+
     setSelectedCard(null);
 
     await supabase
@@ -236,17 +332,34 @@ export default function App() {
       .update({
         vote: null,
       })
-      .eq("session_id", SESSION_ID);
+      .eq("session_id", currentSessionId);
 
     await supabase
       .from("sessions")
       .update({
         revealed: false,
       })
-      .eq("id", SESSION_ID);
+      .eq("id", currentSessionId);
 
-    await loadPlayers();
-    await loadSession();
+    await loadPlayers(currentSessionId);
+    await loadSession(currentSessionId);
+  };
+
+  const logout = () => {
+    if (currentSessionId) {
+      sessionStorage.removeItem(getPlayerStorageKey(currentSessionId));
+    }
+
+    sessionStorage.removeItem(LOCAL_SESSION_KEY);
+
+    setLocalPlayerId(null);
+    setActivePlayerId("");
+    setSelectedCard(null);
+    setPlayerName("");
+    setCurrentSessionId("");
+    setSessionName(DEFAULT_SESSION_NAME);
+    setRevealed(false);
+    setPlayers([]);
   };
 
   const average = useMemo(() => {
@@ -266,38 +379,98 @@ export default function App() {
   if (!localPlayerId) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 text-white px-6 py-10 flex items-center justify-center">
-        <div className="w-full max-w-md bg-white/10 backdrop-blur border border-white/10 rounded-[32px] p-8 shadow-2xl">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="w-12 h-12 rounded-2xl bg-cyan-400/15 border border-cyan-400/30 flex items-center justify-center text-cyan-300">
-              <Users className="w-6 h-6" />
+        <div className="w-full max-w-3xl grid gap-6 lg:grid-cols-[1fr_1fr]">
+          <div className="bg-white/10 backdrop-blur border border-white/10 rounded-[32px] p-8 shadow-2xl">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-12 h-12 rounded-2xl bg-cyan-400/15 border border-cyan-400/30 flex items-center justify-center text-cyan-300">
+                <Users className="w-6 h-6" />
+              </div>
+
+              <div>
+                <p className="text-cyan-400 uppercase tracking-[0.3em] text-xs font-bold">Entrar</p>
+                <h1 className="text-2xl font-black mt-1">{sessionName}</h1>
+              </div>
             </div>
 
-            <div>
-              <p className="text-cyan-400 uppercase tracking-[0.3em] text-xs font-bold">Sessão</p>
-              <h1 className="text-2xl font-black mt-1">{sessionName}</h1>
+            <p className="text-slate-300 mb-6">Escolha uma sessão existente e informe seu nome para entrar na votação.</p>
+
+            <label className="text-sm text-slate-300 block mb-2">Sessão</label>
+
+            <select
+              value={currentSessionId}
+              onChange={(e) => {
+                const nextSessionId = e.target.value;
+                sessionStorage.setItem(LOCAL_SESSION_KEY, nextSessionId);
+                setCurrentSessionId(nextSessionId);
+              }}
+              className="w-full bg-slate-900/70 border border-slate-700 rounded-2xl px-4 py-3 outline-none focus:border-cyan-400 transition mb-5"
+            >
+              {availableSessions.length ? (
+                availableSessions.map((session) => (
+                  <option key={session.id} value={session.id}>
+                    {session.name}
+                  </option>
+                ))
+              ) : (
+                <option value="">Nenhuma sessão criada</option>
+              )}
+            </select>
+
+            <label className="text-sm text-slate-300 block mb-2">Nome</label>
+
+            <div className="flex flex-col sm:flex-row gap-3">
+              <input
+                value={playerName}
+                onChange={(e) => setPlayerName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    addPlayer();
+                  }
+                }}
+                className="flex-1 min-w-0 bg-slate-900/70 border border-slate-700 rounded-2xl px-4 py-3 outline-none focus:border-cyan-400 transition"
+                placeholder="Seu nome"
+                autoFocus
+              />
+
+              <button
+                type="button"
+                onClick={addPlayer}
+                className="w-full sm:w-auto flex-shrink-0 bg-cyan-400 hover:bg-cyan-300 text-slate-900 font-bold px-5 rounded-2xl transition cursor-pointer"
+              >
+                Entrar
+              </button>
             </div>
           </div>
 
-          <p className="text-slate-300 mb-6">Digite seu nome para entrar na sessão. Ao entrar você será adicionado automaticamente à lista de participantes.</p>
+          <div className="bg-white/10 backdrop-blur border border-white/10 rounded-[32px] p-8 shadow-2xl">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-12 h-12 rounded-2xl bg-emerald-400/15 border border-emerald-400/30 flex items-center justify-center text-emerald-300">
+                <CheckCircle2 className="w-6 h-6" />
+              </div>
 
-          <label className="text-sm text-slate-300 block mb-2">Nome</label>
+              <div>
+                <p className="text-emerald-300 uppercase tracking-[0.3em] text-xs font-bold">Criar sessão</p>
+                <h2 className="text-2xl font-black mt-1">Nova rodada</h2>
+              </div>
+            </div>
 
-          <div className="flex flex-col sm:flex-row gap-3">
+            <p className="text-slate-300 mb-6">Crie uma nova sessão e entre nela em seguida usando o mesmo nome, se quiser.</p>
+
+            <label className="text-sm text-slate-300 block mb-2">Nome da sessão</label>
+
             <input
-              value={playerName}
-              onChange={(e) => setPlayerName(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') addPlayer(); }}
-              className="flex-1 min-w-0 bg-slate-900/70 border border-slate-700 rounded-2xl px-4 py-3 outline-none focus:border-cyan-400 transition"
-              placeholder="Seu nome"
-              autoFocus
+              value={newSessionName}
+              onChange={(e) => setNewSessionName(e.target.value)}
+              className="w-full bg-slate-900/70 border border-slate-700 rounded-2xl px-4 py-3 outline-none focus:border-emerald-400 transition mb-5"
+              placeholder="Ex.: Planning da sprint 24"
             />
 
             <button
               type="button"
-              onClick={addPlayer}
-              className="w-full sm:w-auto flex-shrink-0 bg-cyan-400 hover:bg-cyan-300 text-slate-900 font-bold px-5 rounded-2xl transition cursor-pointer"
+              onClick={createSession}
+              className="w-full bg-emerald-400 hover:bg-emerald-300 text-slate-950 font-bold px-5 py-3 rounded-2xl transition cursor-pointer"
             >
-              Entrar
+              Criar sessão
             </button>
           </div>
         </div>
@@ -321,23 +494,39 @@ export default function App() {
 
           <div className="bg-white/10 backdrop-blur border border-white/10 rounded-3xl p-5 w-full lg:w-[380px] shadow-2xl">
             <label className="text-sm text-slate-300 block mb-2">
-              Nome da sessão
+              Sessão ativa
             </label>
 
-            <input
-              value={sessionName}
-              onChange={async (e) => {
-                setSessionName(e.target.value);
+            <div className="flex flex-col gap-3">
+              <select
+                value={currentSessionId}
+                onChange={(e) => {
+                  const nextSessionId = e.target.value;
+                  sessionStorage.setItem(LOCAL_SESSION_KEY, nextSessionId);
+                  setCurrentSessionId(nextSessionId);
+                }}
+                className="w-full bg-slate-900/70 border border-slate-700 rounded-2xl px-4 py-3 outline-none focus:border-cyan-400 transition"
+              >
+                {availableSessions.length ? (
+                  availableSessions.map((session) => (
+                    <option key={session.id} value={session.id}>
+                      {session.name}
+                    </option>
+                  ))
+                ) : (
+                  <option value="">Nenhuma sessão disponível</option>
+                )}
+              </select>
 
-                await supabase
-                  .from("sessions")
-                  .update({
-                    name: e.target.value,
-                  })
-                  .eq("id", SESSION_ID);
-              }}
-              className="w-full bg-slate-900/70 border border-slate-700 rounded-2xl px-4 py-3 outline-none focus:border-cyan-400 transition"
-            />
+              <button
+                type="button"
+                onClick={logout}
+                className="group inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 font-semibold text-rose-200 transition hover:border-rose-400/40 hover:bg-rose-500/15 hover:text-rose-100"
+              >
+                <LogOut className="w-4 h-4 transition group-hover:-translate-x-0.5" />
+                Sair da sessão
+              </button>
+            </div>
           </div>
         </div>
 
