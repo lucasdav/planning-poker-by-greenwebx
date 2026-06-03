@@ -59,6 +59,8 @@ export default function App() {
 
   const [playerName, setPlayerName] = useState("");
 
+  const [playerMessage, setPlayerMessage] = useState<string | null>(null);
+
   const [localPlayerId, setLocalPlayerId] = useState<string | null>(null);
 
   const [selectedCard, setSelectedCard] = useState<string | null>(null);
@@ -160,12 +162,29 @@ export default function App() {
   };
 
   const joinSession = async (sessionId: string, name: string) => {
-    if (!name.trim()) return;
+    const trimmedName = name.trim();
+
+    if (!trimmedName) {
+      setPlayerMessage("Informe um nome para entrar na sessão.");
+      return;
+    }
+
+    const normalizedName = trimmedName.toLowerCase();
+    const alreadyExists = players.some(
+      (player) => player.name.trim().toLowerCase() === normalizedName,
+    );
+
+    if (alreadyExists) {
+      setPlayerMessage("Esse nome já existe na sessão. Escolha outro para continuar.");
+      return;
+    }
+
+    setPlayerMessage(null);
 
     const { data } = await supabase
       .from("players")
       .insert({
-        name: name.trim(),
+        name: trimmedName,
         vote: null,
         session_id: sessionId,
       })
@@ -176,6 +195,7 @@ export default function App() {
       sessionStorage.setItem(getPlayerStorageKey(sessionId), data.id);
       setLocalPlayerId(data.id);
       setActivePlayerId(data.id);
+      setPlayerMessage(`Você entrou como ${trimmedName}.`);
     }
 
     await loadPlayers(sessionId);
@@ -440,6 +460,10 @@ export default function App() {
                 Entrar
               </button>
             </div>
+
+            {playerMessage ? (
+              <p className="mt-4 text-sm text-amber-300">{playerMessage}</p>
+            ) : null}
           </div>
 
           <div className="bg-white/10 backdrop-blur border border-white/10 rounded-[32px] p-8 shadow-2xl">
@@ -542,7 +566,12 @@ export default function App() {
               <div className="flex flex-col sm:flex-row gap-3 mb-5">
                 <input
                   value={playerName}
-                  onChange={(e) => setPlayerName(e.target.value)}
+                  onChange={(e) => {
+                    setPlayerName(e.target.value);
+                    if (playerMessage) {
+                      setPlayerMessage(null);
+                    }
+                  }}
                   placeholder="Adicionar participante"
                   className="flex-1 min-w-0 bg-slate-900/70 border border-slate-700 rounded-2xl px-4 py-3 outline-none focus:border-cyan-400 transition"
                 />
@@ -555,6 +584,10 @@ export default function App() {
                   Adicionar
                 </button>
               </div>
+
+              {playerMessage ? (
+                <p className="mb-5 text-sm text-amber-300">{playerMessage}</p>
+              ) : null}
 
               <div className="space-y-3">
                 {players.map((player) => (
